@@ -1,3 +1,0 @@
-[1] Data.txt: tab delimited text file with 136 rows (subjects) and 472 columns (variables) 
-[2] ResponseVector.txt: tab delimited text file with 136 rows (subjects) and 1 column (response vector) -- 1= CVD case; 2=CVD control. Includes 68 cases and 68 controls 
-[3] MatchedPairIndicator.txt: tab delimited text file with 136 rows (subjects) and 1 column (matched pair index) --  ranges from 1 to 68, as the study design was based on selecting a case (someone who had a major cardiac event within two years of blood draw) and a matched control (someone who did not have event in the 2 years following blood draw), where matching was based on age, race, gender and CAD score [measure of coronary artery disease severity]
