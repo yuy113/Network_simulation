@@ -5,14 +5,13 @@ library(wActNet)
 library(igraph)
 #R package BioNet from BioConductor 
 library(BioNet)
-#Construct the graph from some real dataset
 #set up the directory for the code
 #change to your corresponding directory
 
 setwd("/Users/yubingyao/Google Drive/Network analysis/R code/")
 
 out_dir<-"/Users/yubingyao/Google Drive/Network analysis/R code/"
-
+#number of nodes in the network is 500
 node_size<-500
 network <- erdos.renyi.game(node_size, 0.3)
 
