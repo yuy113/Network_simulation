@@ -1,7 +1,11 @@
 
-library(devtools)
 #please comment the below code out if you already install the package-wActNet from github
+library(devtools)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("pathview")
 install_github("yuy113/wActNet")
+
 library(wActNet)
 library(igraph)
 #R package BioNet from BioConductor 
@@ -10,11 +14,79 @@ library(BioNet)
 #set up the directory for the code
 #change to your corresponding directory
 
-setwd("/Users/yubingyao/Google Drive/Network analysis/R code/")
+#setwd("/Users/yubingyao/Google Drive/Network analysis/R code/")
 
-out_dir<-"/Users/yubingyao/Google Drive/Network analysis/R code/"
+#out_dir<-"/Users/yubingyao/Google Drive/Network analysis/R code/"
 node_size<-500
 network <- erdos.renyi.game(node_size, 0.3)
+################################################################################################
+MultiModuleFind_cos<-function(network,node.scores,edge.scores,ncluster,clustersize){
+  
+  #subnetwork to induced subgraph from graph object considering both the vertices and edges,
+  #with remove.vertex=T,F; if True, then remove the vertices which is not in the edges, otherwise keep them
+  #vid-the names of the vertices in the graph
+  #eid-the names of the edges in the graph, with the format-Name(from_vertex)_Name(to_vertex)
+  #output:the subgraph containing only the vertices of vid and the edges
+  library(COSINE)
+  if(is.null(E(network)$name)){
+    E(network)$name<-names(edge.scores)}
+  
+  num.cluster<-1
+  node.scores0<-node.scores
+  edge.score0<-edge.scores
+  lst.modules<-list()
+  mat_e_idx<-matrix(unlist(strsplit(names(edge.scores),"_")),ncol=2,nrow=length(edge.scores),byrow=T)
+  
+  GA_result10<-GA_search_PPI(lambda=0.5,node.scores,edge.scores,mat_e_idx,
+                             num_iter=200, muCh=0.1, zToR=10, minsize=clustersize)
+  module.10<-GA_result10$Subnet
+  
+  module.1<-GA_result10$Subnet
+  
+  while( !(is.null(module.1))  && num.cluster<ncluster ){
+    
+    
+    lst.modules[[num.cluster]]<-module.10
+    
+    vid.after.cluster1<-setdiff(names(node.scores)
+                                ,names(node.scores)[module.1])
+    
+    network.after.cluster1<-subnetwork.e(network,vid=vid.after.cluster1,eid=names(edge.scores),remove.vertex=F)
+    
+    node.scores2<-node.scores[vid.after.cluster1]
+    eid.after.cluster1<-E(network.after.cluster1)$name
+    
+    
+    
+    edge.scores2<-edge.scores[eid.after.cluster1]
+    
+    mat_e_idx2<-matrix(unlist(strsplit(names(edge.scores2),"_")),ncol=2,nrow=length(edge.scores2),byrow=T)
+    GA_result20<-GA_search_PPI(lambda=0.5,node.scores2,edge.scores2,mat_e_idx2,
+                               num_iter=200, muCh=0.1, zToR=10, minsize=clustersize)
+    
+    
+    module.20<-sapply(names(node.scores2)[GA_result20$Subnet],function(i){which(names(node.scores0)==i)})
+    
+    module.2<-GA_result20$Subnet
+    
+    num.cluster<-num.cluster+1
+    
+    if(num.cluster==ncluster && (!is.null(module.2)) ){
+      lst.modules[[num.cluster]]<-module.20
+    }
+    network<-network.after.cluster1
+    node.scores<-node.scores2
+    
+    edge.scores<-edge.scores2
+    module.1<-module.2
+    module.10<-module.20
+    
+  }
+  
+  lst.modules
+  
+}
+
 ####################################################################################################
 #functions used for simulated clustered network
 make_full_connected_cluster<-function(g,clusterid){
@@ -164,7 +236,7 @@ make_noconnection_cluster1_cluster2<-function(g,cluster1.id,cluster2.id){
 
 subnetwork.e<-function(graph,vid,eid,remove.vertex=F){
   
-  
+  vid<-unique(vid)
   if(is.null(vid)){
     warning("No nodes for subnetwork")  
     break
@@ -350,11 +422,11 @@ id.node.module<-function(g){
 #for 77-with p approximately 77,floor(vcount(g)/5) to floor(vcount(g)/5)+n.cluster(20) all nodes slightly dense connected
 #for 77-with p approximately 77,1 to n.cluster all nodes very densely connected
 
-randba.pos.network.new1<-function(network,m,power,n.size){
+randba.pos.network.new1<-function(network.size,m,power,n.size){
   library(igraph)
   library(BioNet)
-  g <- barabasi.game(vcount(network),m=m,power=power,directed=F)
-  V(g)$name<-paste("Var",as.character(1:vcount(network)),sep="")
+  g <- barabasi.game(network.size,m=m,power=power,directed=F)
+  V(g)$name<-paste("Var",as.character(1:network.size),sep="")
   
   E(g)$name<-paste(get.edgelist(g,name=T)[,1],get.edgelist(g,name=T)[,2],sep="_")
   
@@ -510,10 +582,10 @@ randba.pos.network.new1<-function(network,m,power,n.size){
   
   list(g,id.clusters)
   
-  }
+}
 
-
-#simulation scenario 1
+set.seed(202007)
+#simulation scenario A
 #under BA random graph model
 m=77
 power=1.5
@@ -521,79 +593,18 @@ n.size=50
 n.cluster=4
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
+lst.nodenum.c<-list()
+
 lst.id.clusters<-list()
 g<-network
 
 
-n.sim=100
-for (i in 1:n.sim){
-  
-  lst_network_ba<-randba.pos.network.new1(network=network,m=m,power=power,n.size=n.size)
-  network.test<-lst_network_ba[[1]]
-  id.cluster.true<-lst_network_ba[[2]]
-  node.scores<-unique(V(network.test)$score)
-  names(node.scores)<-unique(V(network.test)$name)
-  
-  edge.scores<-E(network.test)$score
-  names(edge.scores)<-E(network.test)$name
-  
-
-  
-  #find all posible optimized subnetworks by Dittrich node only method and our method
-  modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
-  
-  
-  E(network.test)$score<-E(network.test)$score[E(network.test)$score>0]
-  
-  E(network.test)$name<-E(network.test)$name[E(network.test)$score>0]
-  
-  edge.scores<-E(network.test)$score
-  names(edge.scores)<-E(network.test)$name
-  
-  modules.n<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeOnly")
-  
-  
-  lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
-  lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
-  
-  id.cluster1<-id.cluster.true[1:n.size]
-  id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
-  id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
-  id.cluster4<-id.cluster.true[(3*n.size+1):(4*n.size)]
-  
-  id.noise<-setdiff(1:node_size,id.cluster.true)
-  
-  
-  lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
-                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
-                                                                  length(intersect(x,id.noise)))})
-  
-  lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
-                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
-                                                                  length(intersect(x,id.noise)))})
-  lst.id.clusters[[i]]<-id.cluster.true
-  
-}
-result1.sim11<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
-save(result1.sim11,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(77),".Rdata",sep=""))
 
 
-#simulation scenario 1
-#under BA random graph model
-m=24
-power=1.5
-n.size=50
-n.cluster=4
-lst.nodenum.n<-list()
-lst.nodenum.e<-list()
-lst.id.clusters<-list()
-g<-network
-
-n.sim=100
 for (i in 1:n.sim){
   
   
-  lst_network_ba<-randba.pos.network.new1(network=network,m=m,power=power,n.size=n.size)
+  lst_network_ba<-randba.pos.network.new1(network.size=500,m=m,power=power,n.size=n.size)
   network.test<-lst_network_ba[[1]]
   id.cluster.true<-lst_network_ba[[2]]
   
@@ -607,22 +618,9 @@ for (i in 1:n.sim){
   
   
   #find all posible optimized subnetworks by Dittrich node only method and our method
-  modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
   
-  
-  E(network.test)$score<-E(network.test)$score[E(network.test)$score>0]
-  
-  E(network.test)$name<-E(network.test)$name[E(network.test)$score>0]
-  
-  edge.scores<-E(network.test)$score
-  names(edge.scores)<-E(network.test)$name
-  
-  modules.n<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeOnly")
-  
-  
-  lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
-  lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
-  
+  node_size<-length(unique(V(network.test)$score))
   id.cluster1<-id.cluster.true[1:n.size]
   id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
   id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
@@ -631,52 +629,20 @@ for (i in 1:n.sim){
   id.noise<-setdiff(1:node_size,id.cluster.true)
   
   
-  lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
-  
-  lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
-                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
-                                                                  length(intersect(x,id.noise)))})
-  
   
   lst.id.clusters[[i]]<-id.cluster.true
   
-}
-result1.sim12<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
-save(result1.sim12,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(24),".Rdata",sep=""))
+  
 
+  
 
-
-#simulation scenario 1
-#under BA random graph model
-m=77
-power=1.5
-n.size=20
-n.cluster=4
-lst.nodenum.n<-list()
-lst.nodenum.e<-list()
-lst.id.clusters<-list()
-
-g<-network
-
-
-n.sim=100
-for (i in 1:n.sim){
-  
-  
-  lst_network_ba<-randba.pos.network.new1(network=network,m=m,power=power,n.size=n.size)
-  network.test<-lst_network_ba[[1]]
-  id.cluster.true<-lst_network_ba[[2]]
-  
-  node.scores<-V(network.test)$score
-  names(node.scores)<-V(network.test)$name
-  
-  edge.scores<-E(network.test)$score
-  names(edge.scores)<-E(network.test)$name
-  
-  
-  
   
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
@@ -694,49 +660,47 @@ for (i in 1:n.sim){
   
   lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
   lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
-  
-  id.cluster1<-id.cluster.true[1:n.size]
-  id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
-  id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
-  id.cluster4<-id.cluster.true[(3*n.size+1):(4*n.size)]
-  
-  id.noise<-setdiff(1:node_size,id.cluster.true)
-  
-  
+
   lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
   
   lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
-                                                                  length(intersect(x,id.noise)))})
+   
   
-  lst.id.clusters[[i]]<-id.cluster.true
+  
+  
+  
   
 }
-result1.sim21<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
+result1.sim21<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 
 save(result1.sim21,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(77),".Rdata",sep=""))
 
 
-#simulation scenario 1
+
+set.seed(202007)
+#simulation scenario A
 #under BA random graph model
 m=24
 power=1.5
-n.size=20
+n.size=50
 n.cluster=4
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
+lst.nodenum.c<-list()
+
 lst.id.clusters<-list()
 g<-network
 
 
 
-n.sim=100
+
 for (i in 1:n.sim){
   
   
-  lst_network_ba<-randba.pos.network.new1(network=network,m=m,power=power,n.size=n.size)
+  lst_network_ba<-randba.pos.network.new1(network.size=500,m=m,power=power,n.size=n.size)
   network.test<-lst_network_ba[[1]]
   id.cluster.true<-lst_network_ba[[2]]
   
@@ -748,6 +712,33 @@ for (i in 1:n.sim){
   
   
   
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+  id.cluster1<-id.cluster.true[1:n.size]
+  id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
+  id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
+  id.cluster4<-id.cluster.true[(3*n.size+1):(4*n.size)]
+  
+  id.noise<-setdiff(1:node_size,id.cluster.true)
+  
+  
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
+  lst.id.clusters[[i]]<-id.cluster.true
+  
+  
+
+  
+
   
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
@@ -765,7 +756,63 @@ for (i in 1:n.sim){
   
   lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
   lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
+
+  lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
   
+  lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+   
+  
+  
+  
+  
+  
+}
+result1.sim22<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
+
+save(result1.sim22,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(24),".Rdata",sep=""))
+
+
+
+set.seed(202007)
+#simulation scenario A
+#under BA random graph model
+m=77
+power=1.5
+n.size=20
+n.cluster=4
+lst.nodenum.n<-list()
+lst.nodenum.e<-list()
+lst.nodenum.c<-list()
+
+lst.id.clusters<-list()
+g<-network
+
+
+
+
+for (i in 1:n.sim){
+  
+  
+  lst_network_ba<-randba.pos.network.new1(network.size=500,m=m,power=power,n.size=n.size)
+  network.test<-lst_network_ba[[1]]
+  id.cluster.true<-lst_network_ba[[2]]
+  
+  node.scores<-V(network.test)$score
+  names(node.scores)<-V(network.test)$name
+  
+  edge.scores<-E(network.test)$score
+  names(edge.scores)<-E(network.test)$name
+  
+  
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
   id.cluster1<-id.cluster.true[1:n.size]
   id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
   id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
@@ -774,24 +821,154 @@ for (i in 1:n.sim){
   id.noise<-setdiff(1:node_size,id.cluster.true)
   
   
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
+  lst.id.clusters[[i]]<-id.cluster.true
+  
+  
+
+  
+
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
+  
+  
+  E(network.test)$score<-E(network.test)$score[E(network.test)$score>0]
+  
+  E(network.test)$name<-E(network.test)$name[E(network.test)$score>0]
+  
+  edge.scores<-E(network.test)$score
+  names(edge.scores)<-E(network.test)$name
+  
+  modules.n<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeOnly")
+  
+  
+  lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
+  lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
+
   lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
   
   lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
-                                                                  length(intersect(x,id.noise)))})
+   
   
+  
+  
+  
+  
+}
+result1.sim21<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
+
+save(result1.sim21,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(77),".Rdata",sep=""))
+
+
+
+set.seed(202007)
+#simulation scenario A
+#under BA random graph model
+m=24
+power=1.5
+n.size=20
+n.cluster=4
+lst.nodenum.n<-list()
+lst.nodenum.e<-list()
+lst.nodenum.c<-list()
+
+lst.id.clusters<-list()
+g<-network
+
+
+
+
+for (i in 1:n.sim){
+  
+  
+  lst_network_ba<-randba.pos.network.new1(network.size=500,m=m,power=power,n.size=n.size)
+  network.test<-lst_network_ba[[1]]
+  id.cluster.true<-lst_network_ba[[2]]
+  
+  node.scores<-V(network.test)$score
+  names(node.scores)<-V(network.test)$name
+  
+  edge.scores<-E(network.test)$score
+  names(edge.scores)<-E(network.test)$name
+  
+  
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+  id.cluster1<-id.cluster.true[1:n.size]
+  id.cluster2<-id.cluster.true[(n.size+1):(2*n.size)]
+  id.cluster3<-id.cluster.true[(2*n.size+1):(3*n.size)]
+  id.cluster4<-id.cluster.true[(3*n.size+1):(4*n.size)]
+  
+  id.noise<-setdiff(1:node_size,id.cluster.true)
+  
+  
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
   
   lst.id.clusters[[i]]<-id.cluster.true
   
+  
+
+  
+
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
+  
+  
+  E(network.test)$score<-E(network.test)$score[E(network.test)$score>0]
+  
+  E(network.test)$name<-E(network.test)$name[E(network.test)$score>0]
+  
+  edge.scores<-E(network.test)$score
+  names(edge.scores)<-E(network.test)$name
+  
+  modules.n<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeOnly")
+  
+  
+  lst.modules.e.nodelist<-lapply(modules.e,id.node.module)
+  lst.modules.n.nodelist<-lapply(modules.n,id.node.module)
+
+  lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
+  lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+   
+  
+  
+  
+  
+  
 }
-result1.sim22<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
+result1.sim32<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 
-save(result1.sim22,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(24),".Rdata",sep=""))
+save(result1.sim32,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"_power",as.character(power*10),"m",as.character(24),".Rdata",sep=""))
 
 
-#simulation scenario 1
+
+#simulation scenario A2
 #under ER random graph model
 ##############################################################################################################
 #generate the random graph using the number of nodes in the network from real dataset
@@ -800,11 +977,11 @@ save(result1.sim22,file=paste(out_dir,"BAnew_clustersize",as.character(n.size),"
 #total 4 positive scoring clusters-within first one edge scores all positive-uniform(2,4) with high node score
 #node scores in other nodes in the output random graph-uniform(-4,-2)
 #edge scores in other edges in the output random graph-uniform(-4,1)
-rand.posneg.network.new12<-function(network,p,n.size){
+rand.posneg.network.new12<-function(network.size,p,n.size){
   library(igraph)
   library(BioNet)
-  g <- erdos.renyi.game(vcount(network), p)
-  V(g)$name<-paste("Var",as.character(1:vcount(network)),sep="")
+  g <- erdos.renyi.game(network.size, p)
+  V(g)$name<-paste("Var",as.character(1:network.size),sep="")
   
   E(g)$name<-paste(get.edgelist(g,name=T)[,1],get.edgelist(g,name=T)[,2],sep="_")
   from<-get.edgelist(g,names=T)[,1]
@@ -942,21 +1119,20 @@ rand.posneg.network.new12<-function(network,p,n.size){
 ###########################################################################
 
 
-#simulation scenario 1
+#simulation scenario A2
 #under ER random graph model
 p=0.3
 n.size=50
 n.cluster=4
+lst.nodenum.c<-list()
+lst.id.clusters<-list()
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
 lst.id.clusters<-list()
-g<-network
 
-
-n.sim=100
 for (i in 1:n.sim){
   
-  lst_network_er<-rand.posneg.network.new12(network=network,n.size=n.size,p=p)
+  lst_network_er<-rand.posneg.network.new12(network.size=500,n.size=n.size,p=p)
   network.test<-lst_network_er[[1]]
   id.cluster.true<-lst_network_er[[2]]
   
@@ -967,8 +1143,7 @@ for (i in 1:n.sim){
   names(edge.scores)<-E(network.test)$name
   
   
-  
-  
+    
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
   
@@ -993,6 +1168,7 @@ for (i in 1:n.sim){
   
   id.noise<-setdiff(1:node_size,id.cluster.true)
   
+  
   lst.nodenum.e[[i]]<-lapply(lst.modules.e.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
@@ -1000,27 +1176,46 @@ for (i in 1:n.sim){
   lst.nodenum.n[[i]]<-lapply(lst.modules.n.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
+  
+  
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
   lst.id.clusters[[i]]<-id.cluster.true
   
+  
+  
+  
 }
-result2.sim11<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
+result2.sim11<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 save(result2.sim11,file=paste(out_dir,"ERnew_clustersize",as.character(n.size),"_p",as.character(p*10),".Rdata",sep=""))
 
-#simulation scenario 1
+#simulation scenario A2
 #under ER random graph model
 p=0.1
 n.size=50
 n.cluster=4
+lst.nodenum.c<-list()
+lst.id.clusters<-list()
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
 lst.id.clusters<-list()
-g<-network
 
-n.sim=100
 for (i in 1:n.sim){
   
-  
-  lst_network_er<-rand.posneg.network.new12(network=network,n.size=n.size,p=p)
+  lst_network_er<-rand.posneg.network.new12(network.size=500,n.size=n.size,p=p)
   network.test<-lst_network_er[[1]]
   id.cluster.true<-lst_network_er[[2]]
   
@@ -1031,8 +1226,7 @@ for (i in 1:n.sim){
   names(edge.scores)<-E(network.test)$name
   
   
-  
-  
+    
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
   
@@ -1067,35 +1261,49 @@ for (i in 1:n.sim){
                                                                   length(intersect(x,id.noise)))})
   
   
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
   lst.id.clusters[[i]]<-id.cluster.true
   
+  
+  
+  
 }
-result2.sim12<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
+result2.sim12<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 save(result2.sim12,file=paste(out_dir,"ERnew_clustersize",as.character(n.size),"_p",as.character(p*10),".Rdata",sep=""))
 
 
 
-#simulation scenario 1
+#simulation scenario A2
 #under ER random graph model
 
 p=0.3
 n.size=20
 n.cluster=4
+lst.nodenum.c<-list()
+lst.id.clusters<-list()
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
 lst.id.clusters<-list()
 
-g<-network
-
-
-n.sim=100
 for (i in 1:n.sim){
   
-  
-  lst_network_er<-rand.posneg.network.new12(network=network,n.size=n.size,p=p)
+  lst_network_er<-rand.posneg.network.new12(network.size=500,n.size=n.size,p=p)
   network.test<-lst_network_er[[1]]
   id.cluster.true<-lst_network_er[[2]]
-  
   
   node.scores<-V(network.test)$score
   names(node.scores)<-V(network.test)$name
@@ -1104,8 +1312,7 @@ for (i in 1:n.sim){
   names(edge.scores)<-E(network.test)$name
   
   
-  
-  
+    
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
   
@@ -1139,31 +1346,47 @@ for (i in 1:n.sim){
                                                                   length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
                                                                   length(intersect(x,id.noise)))})
   
+  
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
   lst.id.clusters[[i]]<-id.cluster.true
   
+  
+  
+  
 }
-result2.sim21<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
+result2.sim21<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 save(result2.sim21,file=paste(out_dir,"ERnew_clustersize",as.character(n.size),"_p",as.character(p*10),".Rdata",sep=""))
 
 
-#simulation scenario 1
+#simulation scenario A2
 #under ER random graph model
 
 p=0.1
 n.size=20
 n.cluster=4
+lst.nodenum.c<-list()
+lst.id.clusters<-list()
 lst.nodenum.n<-list()
 lst.nodenum.e<-list()
 lst.id.clusters<-list()
-g<-network
 
-
-
-n.sim=100
 for (i in 1:n.sim){
   
-  
-  lst_network_er<-rand.posneg.network.new12(network=network,n.size=n.size,p=p)
+  lst_network_er<-rand.posneg.network.new12(network.size=500,n.size=n.size,p=p)
   network.test<-lst_network_er[[1]]
   id.cluster.true<-lst_network_er[[2]]
   
@@ -1174,8 +1397,7 @@ for (i in 1:n.sim){
   names(edge.scores)<-E(network.test)$name
   
   
-  
-  
+    
   #find all posible optimized subnetworks by Dittrich node only method and our method
   modules.e<-MultiModuleFind(network.test,node.scores,edge.scores,ncluster=n.cluster,method="NodeEdge")
   
@@ -1210,10 +1432,27 @@ for (i in 1:n.sim){
                                                                   length(intersect(x,id.noise)))})
   
   
+  
+  
+  #find all posible optimized subnetworks by Dittrich node only method and our method
+  modules.cos<-MultiModuleFind_cos(network.test,node.scores,edge.scores,ncluster=n.cluster,clustersize=n.size)
+  
+  node_size<-length(unique(V(network.test)$score))
+
+  lst.modules.c.nodelist<-modules.cos
+  
+  
+  
+  lst.nodenum.c[[i]]<-lapply(lst.modules.c.nodelist,function(x){c(length(x),length(intersect(x,id.cluster1)),length(intersect(x,id.cluster2)),
+                                                                  length(intersect(x,id.cluster3)),length(intersect(x,id.cluster4)),
+                                                                  length(intersect(x,id.noise)))})
+  
   lst.id.clusters[[i]]<-id.cluster.true
   
+  
+  
+  
 }
-result2.sim22<-list(lst.nodenum.n,lst.nodenum.e,lst.id.clusters)
-
+result2.sim22<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 save(result2.sim22,file=paste(out_dir,"ERnew_clustersize",as.character(n.size),"_p",as.character(p*10),".Rdata",sep=""))
 
