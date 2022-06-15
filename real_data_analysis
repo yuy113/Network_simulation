@@ -1,0 +1,1671 @@
+```{r , eval=FALSE}
+
+#####################################################################
+library(devtools)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("pathview")
+
+
+
+
+install_github("yuy113/wActNet")
+
+library(wActNet)
+
+library(readxl)
+setwd("/Users/yubingyao/Google Drive/Network analysis/R code/")
+dat.met<-read_excel("data_pull_EU_metabolomics.xlsx")
+dim(dat.met)
+head(dat.met)
+ncol(dat.met)
+
+dat.met1<-dat.met[,-1]
+cout.mis<-apply(dat.met1,2,function(x){sum(is.na(x))})
+
+#cout.mis<-sapply(1:ncol(dat.met1),function(x){sum(is.na(as.matrix(dat.met1)[,x]))})
+
+names(cout.mis)<-colnames(dat.met1)
+table(cout.mis)
+
+#the number of missing in metabolite variables
+cout.mis1<-cout.mis[-c(length(cout.mis):(length(cout.mis)-12))]
+table(cout.mis1)
+
+sum(cout.mis1>=200)/length(cout.mis1)
+summary(cout.mis1)
+#the percentage of missing in metabolite variables
+perc.count.mis<-cout.mis1/nrow(dat.met)
+hist(cout.mis1,breaks=100,col="skyblue",xlab="Count of Missing")
+summary(perc.count.mis)
+
+hist(perc.count.mis,breaks=100,col="skyblue",xlab="Percentage of Missing",main="Histogram")
+
+
+sum(perc.count.mis>0.1)/length(perc.count.mis)
+
+sum(perc.count.mis>0.5)
+
+sum(perc.count.mis>0.6)
+
+sum(perc.count.mis>0.8)
+
+sum(perc.count.mis>0.9)
+
+sum(perc.count.mis==1)/length(cout.mis1)
+
+#set a cutooff value
+perc.mis.cutoff<-0.1
+metobolites<-dat.met1[,-c(length(cout.mis):(length(cout.mis)-12))]
+dim(metobolites)
+metobolites.nonmis<-metobolites[,perc.count.mis<=0.1]
+dim(metobolites.nonmis)
+
+sapply(1:5,function(x){abs(x)})
+min(1:6,na.rm=T)
+#impute missing values with minimum value/2
+impute.min.5<-function(x){
+  min.x<-min(x,na.rm=T)
+  sapply(x,function(y){ifelse(is.na(y),min.x/2.0,y)})
+}
+metobolites.nonmis.impute<-apply(metobolites.nonmis,2,impute.min.5)
+
+sum(apply(metobolites.nonmis.impute,2,function(z){any(is.na(z))}))
+#metabolite with log transformed
+metobolites.nonmis.impute.log<-metobolites.nonmis.impute[,grepl("log",colnames(metobolites.nonmis.impute)
+)]
+dim(metobolites.nonmis.impute.log)
+
+
+
+#metabolite without log transformed
+metobolites.nonmis.impute.nolog<-metobolites.nonmis.impute[,!grepl("log",colnames(metobolites.nonmis.impute)
+)]
+dim(metobolites.nonmis.impute.nolog)
+hist(metobolites.nonmis.impute.nolog[,102],breaks=100,col="skyblue",xlab="Percentage of Missing",main="Histogram")
+
+
+#standardize the metabolite covariates
+metobolites.nonmis.impute.nolog.std<-apply(metobolites.nonmis.impute.nolog,2,function(x){(log(x)-mean(log(x)))/sd(log(x))})
+
+metobolites.nonmis.impute.log.std<-apply(metobolites.nonmis.impute.log,2,function(x){(x-mean(x))/sd(x)})
+
+metobolites.final<-cbind(metobolites.nonmis.impute.nolog.std,metobolites.nonmis.impute.log.std)
+apply(metobolites.final,2,mean)
+
+# 1 hour
+metobolites.final.1hour<-metobolites.final[,grepl("_12",colnames(metobolites.final))]
+#fasting
+metobolites.final.fasting<-metobolites.final[,grepl("_01",colnames(metobolites.final))]
+#generate the correlation matrix for fasting metabolites
+cor.metobolites.fasting<-cor(metobolites.final.fasting)
+
+#generate P values for the nodes
+#regression adjusting for field center(field_center), gestational age(ga_ogtt_wks), maternal age(age_ogtt),
+#maternal BMI(bmi_ogtt), and mean arterial pressure at OGTT(mapm_ogtt)
+#, newborn sex(nn_gender), and sample storage time(storetime_nt_mom_yrs)
+#outcome Y-new birth weights (nn_bthwt)
+cov.other<-dat.met1[,c("field_center","bmi_ogtt","ga_ogtt_wks","age_ogtt",
+                       "bmi_ogtt","mapm_ogtt","nn_gender","storetime_nt_mom_yrs")]
+
+dat.analy.fasting<-data.frame(metobolites.final.fasting,cov.other,dat.met1[,"nn_bthwt"])
+Y<-as.vector(unlist(dat.met1[,"nn_bthwt"]))
+
+
+pvalue.met<-function(i){
+
+dat.analy.fasting_temp<-data.frame(met=metobolites.final.fasting[,i],cov.other,Y=dat.met1[,"nn_bthwt"])
+lm1<-lm(Y~met+field_center+bmi_ogtt+ga_ogtt_wks
+        +age_ogtt+bmi_ogtt+mapm_ogtt+nn_gender
+        +storetime_nt_mom_yrs,data=dat.analy.fasting_temp)
+summary(lm1)$coefficients[2,4]
+
+}
+
+pval.met.fasting<-sapply(1:ncol(metobolites.final.fasting),pvalue.met)
+
+
+library(igraph)
+library(BioNet)
+getwd()
+#setwd("/Users/yubingyao/Google Drive/Network analysis/R code/")
+
+names.met.fasting1<-gsub("_", ".", colnames(metobolites.final.fasting))
+
+metobolites.final.fasting1<-metobolites.final.fasting
+colnames(metobolites.final.fasting1)<-names.met.fasting1
+
+pval.edge.met.fasting1<-pval.perm.corr(dat=metobolites.final.fasting1,nsim=100000,MatchId=NA,do.parallel=T,no_cores=4)
+names(pval.met.fasting)<-colnames(metobolites.final.fasting1)
+
+pval.edge.met.1hour<-pval.perm.corr(dat=metobolites.final.1hour1,nsim=100000,MatchId=NA,do.parallel=T,no_cores=4)
+
+#contruct the test network with the format-igraph based on the dataset of the covariates and edge scores
+da.igraph.test<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=NA,edge.score=edge.score.fasting,node.weight=NA,edge.weight=NA)
+#get the node score based on the network and p.values of the nodes in the network
+node.scores.fasting<-node.score(da.igraph=da.igraph.test,pval=pval.met.fasting,fdr=0.2)
+node.scores.fasting[node.scores.fasting>0]
+network.fasting<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting,edge.score=edge.score.fasting,node.weight=NA,edge.weight=NA)
+
+
+
+
+#full names of metabolites in 
+
+dat.full.names.subnetwork.e<-read.csv(file = 'name_map_subnetwork_e.csv')
+
+head(dat.full.names.subnetwork.e)
+
+
+dat.full.names.subnetwork.e[,9]
+
+full.names.subnetwork.e<-dat.full.names.subnetwork.e[,1]
+
+met.fasting.fullname.final
+
+met.fasting.shortname.final<-names(met.fasting.fullname.final)
+
+names(met.fasting.shortname.final)<-met.fasting.fullname.final
+
+short.names.subnetwork.e<-met.fasting.shortname.final[full.names.subnetwork.e]
+
+
+pval.subnetwork.e.fasting<-pval.met.fasting32[short.names.subnetwork.e]
+
+coeff.subnetwork.e.fasting<-coeff.met.fasting32[short.names.subnetwork.e]
+
+
+
+dat.fasting.subnetwork.e<-data.frame(p_value=pval.subnetwork.e.fasting,estimate_coeff=coeff.subnetwork.e.fasting,metabolites_name=full.names.subnetwork.e,
+                                     short_name=short.names.subnetwork.e,est_upper_ci=)
+dat.fasting.subnetwork.e$class_label<-dat.full.names.subnetwork.e[,9]
+
+save(dat.fasting.subnetwork.e, file = "data_fasting_sub_e.RData")
+#corresponding regression coefficients and P-values, node scores
+load("data_fasting_sub_e.RData")
+dim(dat.fasting.subnetwork.e)
+
+dat.fasting.subnetwork.e$est_upper_ci<-coeff.met.fasting32.subnetwork.e[3,]
+
+dat.fasting.subnetwork.e$est_lower_ci<-coeff.met.fasting32.subnetwork.e[2,]
+
+
+head(dat.fasting.subnetwork.e)
+
+save(dat.fasting.subnetwork.e, file = "data_fasting_sub_e.RData")
+
+dat.fasting.subnetwork.e$est_ci<-paste("(",as.character(format(dat.fasting.subnetwork.e$est_lower_ci,digits=1)),",",as.character(format(dat.fasting.subnetwork.e$est_upper_ci,digits=1)),")",sep="")
+
+? as.character(dat.fasting.subnetwork.e$est_lower_ci[1])
+
+
+rownames(dat.fasting.subnetwork.e)
+library(xtable)
+rownames(dat.fasting.subnetwork.e)<-NULL
+xtable(dat.fasting.subnetwork.e[,c(3,2,1,5,8)], digits=8,auto=T)
+
+? xtable
+##############################################################
+###without age adjusted
+pvalue.met32<-function(i){
+  
+  
+  
+  dat.analy.fasting_temp2<-data.frame(met=metobolites.final.fasting[,i],cov.other)
+  lm1<-lm(bmi_ogtt~met+age_ogtt,data=dat.analy.fasting_temp2)
+  summary(lm1)$coefficients[2,4]
+  
+  
+  
+}
+
+coeff.met32<-function(i){
+  
+
+  
+  dat.analy.fasting_temp2<-data.frame(met=metobolites.final.fasting[,i],cov.other)
+  lm1<-lm(bmi_ogtt~met+age_ogtt,data=dat.analy.fasting_temp2)
+  est<-summary(lm1)$coefficients[2,1]
+  
+  est_lowci<-est+qnorm(0.025)*summary(lm1)$coefficients[2,2]
+  est_upperci<-est+qnorm(0.975)*summary(lm1)$coefficients[2,2]
+  
+  c(est,est_lowci,est_upperci)
+}
+
+
+pval.met.fasting32<-sapply(1:ncol(metobolites.final.fasting),pvalue.met32)
+
+coeff.met.fasting32<-sapply(1:ncol(metobolites.final.fasting),coeff.met32)
+
+colnames(coeff.met.fasting32)<-colnames(metobolites.final.fasting1)
+
+
+coeff.met.fasting32.subnetwork.e<-coeff.met.fasting32[,rownames(dat.fasting.subnetwork.e)
+]
+
+
+dim(coeff.met.fasting32.subnetwork.e)
+
+
+
+names(pval.met.fasting32)<-colnames(metobolites.final.fasting1)
+
+coeff.met.fasting32.subnetwork.e[3,]
+
+
+
+
+pathway_met_fasting <- read.csv(file = 'name_map_network_linking_pathway.csv')
+head(pathway_met_fasting)
+dim(pathway_met_fasting)
+
+
+dat.met.names<-read_excel("data_pull_EU_metabolomics.xlsx",sheet="Annotation",
+                          col_names = TRUE )
+as.character(dat.met.names[3,2])
+dat.met.names[1:5,1]=="id5"
+? corrplot
+
+seq(2,434,by=2)
+unlist(strsplit(as.character(dat.met.names[3,2]),"1-hr "))
+
+dat.met.names.1<-apply(dat.met.names[2:nrow(dat.met.names),2],1,function(x){unlist(strsplit(as.character(x),"Fasting "))[2]})
+
+dat.met.names11_fasting<-cbind(dat.met.names[2:nrow(dat.met.names),1],dat.met.names.1)
+
+dat.met.names12_fasting<-dat.met.names11_fasting[!is.na(dat.met.names.1),]
+
+
+dim(dat.met.names12_fasting)
+
+dat.met_names_fasting_final<-dat.met.names12_fasting[,1]
+
+names(dat.met_names_fasting_final)<-dat.met.names12_fasting[,2]
+
+
+dat.met_names_fasting_final[pathway_met_fasting[,1]]
+
+pathway_met_fasting[1:4,]
+pred_met_fasting<-cbind(id=1:nrow(pathway_met_fasting),pathway_met_fasting[,c(1,8,9)],original_name=dat.met_names_fasting_final[pathway_met_fasting[,1]]
+)
+
+pred_met_fasting[1:4,]
+dat.met.names.11
+
+adj_idx_met_fasting<-sapply(1:nrow(pred_met_fasting),function(x){if(pred_met_fasting[x,3]!=""
+) {c1<-as.numeric(unlist(strsplit(as.character(pred_met_fasting[x,3]),",")));
+return(cbind(rep(pred_met_fasting[x,1] ,length(c1)),c1))}
+else return(NA)
+
+})
+
+lapply(adj_idx_met_fasting,function(x){if(!is.na(x)) return(x)})
+
+adj_idx_met_fasting1<-adj_idx_met_fasting[!sapply(adj_idx_met_fasting, function(x) all(is.na(x)))]
+
+
+    
+x<-adj_idx_met_fasting1[[1]]
+for (i in 2:length(adj_idx_met_fasting1)){
+x<-rbind(x,adj_idx_met_fasting1[[i]])       
+}     
+
+colnames(metobolites.final.fasting)
+
+dim(pred_met_fasting)
+pred_met_fasting[1:5,]
+
+pred_met_fasting[,5]
+
+
+met.names.other<-setdiff(colnames(metobolites.final.fasting),pred_met_fasting[,5])
+
+colnames()
+#list of pair of ids in adjacent matrix from fasting predictors with KEGG ids in fasting metabolites 
+adj_pair_lst_met_fasting<-x       
+             
+adj_mat_kegg<-matrix(0,ncol=128,nrow=128)
+
+
+
+
+#adjusted met id, firstly 119 from pathway analysis of KEGG database,
+#other 9 no KEGG ids
+colnames(adj_mat_kegg)<-c(pred_met_fasting[,5],met.names.other)
+rownames(adj_mat_kegg)<-c(pred_met_fasting[,5],met.names.other)
+adj_mat_kegg[adj_pair_lst_met_fasting]<-1
+
+
+
+#######################################################################################
+
+
+dat.met.names.1hour<-dat.met.names[apply(dat.met.names[,2],1,function(x){grepl("1-hr",x)}),]
+
+dat.met.names.fasting<-dat.met.names[apply(dat.met.names[,2],1,function(x){grepl("Fasting",x)}),2]
+
+
+
+pvalue.met31<-function(i){
+
+  dat.analy.fasting_temp2<-data.frame(met=metobolites.final.fasting[,i],cov.other)
+  lm1<-lm(met~bmi_ogtt+age_ogtt,data=dat.analy.fasting_temp2)
+  summary(lm1)$coefficients[2,4]
+
+}
+pval.met.fasting31<-sapply(1:ncol(metobolites.final.fasting),pvalue.met31)
+
+names(pval.met.fasting31)<-colnames(metobolites.final.fasting1)
+node.scores.fasting31<-node.score(da.igraph=da.igraph.test,pval=pval.met.fasting31,fdr=0.05)
+node.scores.fasting31[node.scores.fasting31>0]
+##############################################################
+
+
+##############################################################
+###without age adjusted
+pvalue.met32<-function(i){
+
+  
+  
+  dat.analy.fasting_temp2<-data.frame(met=metobolites.final.fasting[,i],cov.other)
+  lm1<-lm(bmi_ogtt~met+age_ogtt,data=dat.analy.fasting_temp2)
+  summary(lm1)$coefficients[2,4]
+  
+  
+  
+}
+
+coeff.met32<-function(i){
+  
+
+
+  dat.analy.fasting_temp2<-data.frame(met=metobolites.final.fasting[,i],cov.other)
+  lm1<-lm(bmi_ogtt~met+age_ogtt,data=dat.analy.fasting_temp2)
+  summary(lm1)$coefficients[2,1]
+  
+  
+  
+}
+
+
+pval.met.fasting32<-sapply(1:ncol(metobolites.final.fasting),pvalue.met32)
+
+coeff.met.fasting32<-sapply(1:ncol(metobolites.final.fasting),coeff.met32)
+
+
+
+
+
+names(pval.met.fasting32)<-colnames(metobolites.final.fasting1)
+
+
+
+node.scores.fasting32<-node.score(da.igraph=da.igraph.test,pval=pval.met.fasting32,fdr=0.05)
+node.scores.fasting32[node.scores.fasting32>0]
+length(node.scores.fasting32)
+length(node.scores.fasting32[node.scores.fasting32>0])
+
+#######################################################
+##1 hour metabolites-metabolite~maternal BMI(+age)
+#######################################################
+pvalue.met41<-function(i){
+
+  dat.analy.1hour_temp2<-data.frame(met=metobolites.final.1hour[,i],cov.other)
+  lm1<-lm(met~bmi_ogtt+age_ogtt,data=dat.analy.1hour_temp2)
+  summary(lm1)$coefficients[2,4]
+
+}
+pval.met.fasting41<-sapply(1:ncol(metobolites.final.1hour),pvalue.met41)
+
+names(pval.met.fasting41)<-colnames(metobolites.final.1hour1)
+node.scores.fasting41<-node.score(da.igraph=da.igraph.test2,pval=pval.met.fasting41,fdr=0.05)
+node.scores.fasting41[node.scores.fasting41>0]
+
+node.scores.fasting411<-node.score(da.igraph=da.igraph.test2,pval=pval.met.fasting41,fdr=0.01)
+node.scores.fasting411[node.scores.fasting411>0]
+length(node.scores.fasting411[node.scores.fasting411>0])
+##############################################################
+summary(metobolites.final.fasting1)
+mydata1<-t(metobolites.final.1hour1)
+# Determine number of clusters
+wss1 <- (nrow(mydata1)-1)*sum(apply(mydata1,2,var))
+for (i in 2:15) wss1[i] <- sum(kmeans(mydata1,
+                                     centers=i)$withinss)
+plot(1:15, wss1, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+# K-Means Cluster Analysis
+fit1 <- kmeans(mydata1, 4) # 5 cluster solution
+# get cluster means
+aggregate(mydata1,by=list(fit1$cluster),FUN=mean)
+# append cluster assignment
+mydata1 <- data.frame(mydata1, fit1$cluster)
+summary(mydata1)
+cluster.met.1hour<-mydata1[,ncol(mydata1)]
+names(cluster.met.1hour)<-rownames(mydata1)
+# Ward Hierarchical Clustering
+d1 <- dist(mydata1, method = "euclidean") # distance matrix
+fit11 <- hclust(d1, method="ward")
+plot(fit11) # display dendogram
+groups1 <- cutree(fit11, k=5) # cut tree into 5 clusters
+# draw dendogram with red borders around the 5 clusters
+rect.hclust(fit11, k=5, border="red")
+
+
+
+
+
+
+summary(metobolites.final.fasting1)
+
+mydata2<-t(metobolites.final.fasting1)
+# Determine number of clusters
+wss2 <- (nrow(mydata2)-1)*sum(apply(mydata2,2,var))
+for (i in 2:15) wss2[i] <- sum(kmeans(mydata2,
+                                      centers=i)$withinss)
+plot(1:15, wss2, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+# K-Means Cluster Analysis
+fit2 <- kmeans(mydata2, 4) # 5 cluster solution
+# get cluster means
+aggregate(mydata2,by=list(fit2$cluster),FUN=mean)
+# append cluster assignment
+mydata2 <- data.frame(mydata2, fit2$cluster)
+
+head(mydata2)
+
+mydata2[,ncol(mydata2)]
+
+cluster.met.fasting<-mydata2[,ncol(mydata2)]
+names(cluster.met.fasting)<-rownames(mydata2)
+cluster.met.fasting[names(node.scores.fasting31)]
+cluster.met.1hour[names(node.scores.fasting41)]
+
+#####################################################
+# Ward Hierarchical Clustering
+d1 <- dist(mydata1, method = "euclidean") # distance matrix
+fit11 <- hclust(d1, method="ward")
+plot(fit11) # display dendogram
+groups1 <- cutree(fit11, k=5) # cut tree into 5 clusters
+# draw dendogram with red borders around the 5 clusters
+rect.hclust(fit11, k=5, border="red")
+
+
+
+
+
+
+
+
+##############################################################
+###1 hour, without age adjusted
+pvalue.met42<-function(i){
+
+  dat.analy.1hour_temp2<-data.frame(met=metobolites.final.1hour[,i],cov.other)
+  lm1<-lm(met~bmi_ogtt,data=dat.analy.1hour_temp2)
+  summary(lm1)$coefficients[2,4]
+
+}
+pval.met.fasting42<-sapply(1:ncol(metobolites.final.1hour),pvalue.met42)
+
+names(pval.met.fasting42)<-colnames(metobolites.final.1hour1)
+node.scores.fasting42<-node.score(da.igraph=da.igraph.test2,pval=pval.met.fasting42,fdr=0.05)
+node.scores.fasting42[node.scores.fasting42>0]
+
+length(node.scores.fasting42[node.scores.fasting42>0])
+length(node.scores.fasting42)
+
+
+##########################################################
+#Contrstruct weighted metabolic network-fasting with age adjusted
+#######################################################
+network.fasting1<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=edge.score.fasting,node.weight=NA,edge.weight=NA)
+
+
+##########################################################
+#Contrstruct weighted metabolic network-fasting without age adjusted
+#######################################################
+network.fasting2<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting32,edge.score=edge.score.fasting,node.weight=NA,edge.weight=NA)
+
+
+##########################################################
+#Contrstruct weighted metabolic network-1 hour with age adjusted
+#######################################################
+network.1hour1<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=edge.score.1hour,node.weight=NA,edge.weight=NA)
+names(E(network.1hour1)$score)
+names(edge.score.1hour)
+V(network.1hour1)
+names(node.scores.fasting41)
+
+network.1hour11<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting411,edge.score=edge.score.1hour,node.weight=NA,edge.weight=NA)
+
+##########################################################
+#Contrstruct weighted metabolic network-1 hour without age adjusted
+#######################################################
+network.1hour2<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting42,edge.score=edge.score.1hour,node.weight=NA,edge.weight=NA)
+
+###############################
+#Dittrich node only method
+##############################
+library(BioNet)
+library(wActNet)
+names(node.scores.fasting41)[node.scores.fasting41>0]
+module.1hour1.1<-runFastHeinz.e(network.1hour1, node.scores.fasting41,edge.score.1hour)
+
+module.1hour1.11<-runFastHeinz.e(network.1hour11, node.scores.fasting411,edge.score.1hour)
+
+plotModule(module.1hour1.1)
+
+plotModule(module.1hour1.11)
+
+module.1hour1.1_cos<-MultiModuleFind_cos_dat(network=network.1hour1, node.scores=node.scores.fasting41,edge.scores=edge.score.1hour,ncluster=4,clustersize=10)
+save(module.1hour1.1_cos,file=paste(out_dir,"1hour1_",as.character(10),"n_iter",as.character(4),".Rdata",sep=""))
+
+
+module.1hour2.1_cos<-MultiModuleFind_cos_dat(network=network.1hour11, node.scores=node.scores.fasting411,edge.scores=edge.score.1hour,ncluster=4,clustersize=10)
+save(module.1hour2.1_cos,file=paste(out_dir,"1hour2_",as.character(10),"n_iter",as.character(4),".Rdata",sep=""))
+
+node.scores.fasting41[module.1hour1.1_cos[[1]]]
+
+module.fasting
+V(module.1hour1.1)$name
+
+V(module.1hour1.1n)$name
+
+setdiff(V(module.1hour1.1)$name,V(module.1hour1.1n)$name)
+
+setdiff(V(module.1hour1.1n)$name,V(module.1hour1.1)$name)
+
+setdiff(V(module.1hour1.1)$name,names(node.scores.fasting41)[node.scores.fasting41>0]
+)
+
+setdiff(V(module.1hour1.1n)$name,names(node.scores.fasting41)[node.scores.fasting41>0]
+)
+
+
+edge.score.1hour.pos<-E(network.1hour1)$score[E(network.1hour1)$score>0]
+names(edge.score.1hour.pos)<-names(edge.score.1hour)[E(network.1hour1)$score>0]
+
+network.1hour1.n<-network.1hour1
+E(network.1hour1.n)$name
+E(network.1hour1.n)$score<-edge.score.1hour.pos
+names(E(network.1hour1.n)$score)<-names(edge.score.1hour.pos)
+
+network.1hour1.n<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=edge.score.1hour.pos,node.weight=NA,edge.weight=NA)
+
+network.1hour11.n<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting411,edge.score=edge.score.1hour.pos,node.weight=NA,edge.weight=NA)
+
+
+
+
+module.1hour11.1n<-runFastHeinz(network.1hour11.n, node.scores.fasting411)
+
+module.1hour1.1n<-runFastHeinz(network.1hour1.n, node.scores.fasting41)
+plotModule(module.1hour1.1n)
+
+plotModule(module.1hour11.1n)
+
+setdiff(V(module.1hour1.1)$name,V(module.1hour1.1n)$name)
+
+setdiff(V(module.1hour1.1n)$name,V(module.1hour1.1)$name)
+
+node.scores.fasting41["ala.aa.12"]
+
+
+node.scores.fasting41["CAS.63.42.3.nt.12"]
+
+node.scores.fasting41["CAS.63.42.3.nt.12"]
+
+
+
+module.fasting1.1<-runFastHeinz.e(network.fasting1, node.scores.fasting31,edge.score.fasting)
+
+length(V(module.fasting1.1))
+
+plotModule(module.fasting1.2)
+module.fasting1.2<-runFastHeinz.e(network.fasting1, node.scores.fasting32,edge.score.fasting)
+
+V(module.fasting1.2)$name<-met.fasting.fullname.final[V(module.fasting1.2)$name]
+
+
+####################################################################################################
+MultiModuleFind_cos_dat<-function(network,node.scores,edge.scores,ncluster,clustersize){
+  
+  #subnetwork to induced subgraph from graph object considering both the vertices and edges,
+  #with remove.vertex=T,F; if True, then remove the vertices which is not in the edges, otherwise keep them
+  #vid-the names of the vertices in the graph
+  #eid-the names of the edges in the graph, with the format-Name(from_vertex)_Name(to_vertex)
+  #output:the subgraph containing only the vertices of vid and the edges
+  library(COSINE)
+  if(is.null(E(network)$name)){
+    E(network)$name<-names(edge.scores)}
+  
+  num.cluster<-1
+  node.scores0<-node.scores
+  edge.score0<-edge.scores
+  lst.modules<-list()
+  mat_e_idx<-matrix(unlist(strsplit(names(edge.scores),"_")),ncol=2,nrow=length(edge.scores),byrow=T)
+  
+  GA_result10<-GA_search_PPI(lambda=0.5,node.scores,edge.scores,mat_e_idx,
+                             num_iter=2000, muCh=0.1, zToR=10, minsize=clustersize)
+  module.10<-GA_result10$Subnet
+  
+  module.1<-GA_result10$Subnet
+  
+  while( !(is.null(module.1))  && num.cluster<ncluster ){
+    
+    
+    lst.modules[[num.cluster]]<-module.10
+    
+    vid.after.cluster1<-setdiff(names(node.scores)
+                                ,names(node.scores)[module.1])
+    
+    network.after.cluster1<-subnetwork.e(network,vid=vid.after.cluster1,eid=names(edge.scores),remove.vertex=F)
+    
+    node.scores2<-node.scores[vid.after.cluster1]
+    eid.after.cluster1<-E(network.after.cluster1)$name
+    
+    
+    
+    edge.scores2<-edge.scores[eid.after.cluster1]
+    
+    mat_e_idx2<-matrix(unlist(strsplit(names(edge.scores2),"_")),ncol=2,nrow=length(edge.scores2),byrow=T)
+    GA_result20<-GA_search_PPI(lambda=0.5,node.scores2,edge.scores2,mat_e_idx2,
+                               num_iter=2000, muCh=0.1, zToR=10, minsize=clustersize)
+    
+    
+    module.20<-sapply(names(node.scores2)[GA_result20$Subnet],function(i){which(names(node.scores0)==i)})
+    
+    module.2<-GA_result20$Subnet
+    
+    num.cluster<-num.cluster+1
+    
+    if(num.cluster==ncluster && (!is.null(module.2)) ){
+      lst.modules[[num.cluster]]<-module.20
+    }
+    network<-network.after.cluster1
+    node.scores<-node.scores2
+    
+    edge.scores<-edge.scores2
+    module.1<-module.2
+    module.10<-module.20
+    
+  }
+  
+  lst.modules
+  
+}
+
+module.fasting1.1_cos<-MultiModuleFind_cos_dat(network=network.fasting1, node.scores=node.scores.fasting31,edge.scores=edge.score.fasting,ncluster=4,clustersize=10)
+save(module.fasting1.1_cos,file=paste(out_dir,"fasting31_",as.character(10),"n_iter",as.character(4),".Rdata",sep=""))
+
+load("fasting31_10n_iter4.Rdata")
+
+V(module.fasting1.1_cos)$name
+
+node.scores.fasting31[module.fasting1.1_cos[[1]]]
+
+node.scores.fasting31[module.fasting1.1_cos[[2]]]
+
+node.scores.fasting31[module.fasting1.1_cos[[3]]]
+
+node.scores.fasting31[module.fasting1.1_cos[[4]]]
+
+
+fasting_cosine_name<-met.fasting.fullname[names(node.scores.fasting31[c(module.fasting1.1_cos[[1]],module.fasting1.1_cos[[2]],module.fasting1.1_cos[[3]])])]
+node.scores.cosine_fasting<-node.scores.fasting31[c(module.fasting1.1_cos[[1]],module.fasting1.1_cos[[2]],module.fasting1.1_cos[[3]])]
+
+fasting_cosine_name[order(fasting_cosine_name)]
+node.scores.cosine_fasting[order(fasting_cosine_name)]
+
+cbind(fasting_cosine_name[order(fasting_cosine_name)],node.scores.cosine_fasting[order(fasting_cosine_name)])
+dat.met.names<-read_excel("data_pull_EU_metabolomics.xlsx",sheet="Annotation",
+                          col_names = TRUE )
+as.character(dat.met.names[3,2])
+dat.met.names[1:5,1]=="id5"
+? corrplot
+
+seq(2,434,by=2)
+unlist(strsplit(as.character(dat.met.names[3,2]),"1-hr "))
+
+dat.met.names.1<-apply(dat.met.names[2:nrow(dat.met.names),2],1,function(x){unlist(strsplit(as.character(x)," "))[2]})
+
+dat.met.names.11
+
+dat.met.names.1hour<-dat.met.names[apply(dat.met.names[,2],1,function(x){grepl("1-hr",x)}),]
+
+dat.met.names.fasting<-dat.met.names[apply(dat.met.names[,2],1,function(x){grepl("Fasting",x)}),]
+
+
+met.fasting.shortname<-apply(dat.met.names.fasting[,1],1,function(x){gsub("_",".",x)})
+met.fasting.fullname<-apply(dat.met.names.fasting[,2],1,function(x){unlist(strsplit(as.character(x),"Fasting "))[2]})
+names(met.fasting.fullname)<-met.fasting.shortname
+met.fasting.shortname.final<-node.scores.fasting31[met.fasting.shortname][na.omit(node.scores.fasting31[met.fasting.shortname])]
+
+met.1hr.shortname<-apply(dat.met.names.1hour[,1],1,function(x){gsub("_",".",x)})
+met.1hr.fullname<-apply(dat.met.names.1hour[,2],1,function(x){unlist(strsplit(as.character(x),"1-hr "))[2]})
+names(met.1hr.fullname)<-met.1hr.shortname
+
+format(x, digits=2, nsmall=2)
+
+met.fasting.fullname.final<-met.fasting.fullname[names(na.omit(node.scores.fasting31[met.fasting.shortname]))]
+met.fasting.name.nodescore<-paste(met.fasting.fullname.final,as.character(format(na.omit(node.scores.fasting31[met.fasting.shortname]),digits=1, nsmall=2)),sep=" ")
+names(met.fasting.name.nodescore)<-names(na.omit(node.scores.fasting31[met.fasting.shortname]))
+
+met.1hr.fullname.final<-met.1hr.fullname[names(na.omit(node.scores.fasting41[met.1hr.shortname]))]
+met.1hr.name.nodescore<-paste(met.1hr.fullname.final,as.character(format(na.omit(node.scores.fasting41[met.1hr.shortname]),digits=1, nsmall=2)),sep=" ")
+names(met.1hr.name.nodescore)<-names(na.omit(node.scores.fasting41[met.1hr.shortname]))
+
+
+
+setdiff(V(module.fasting1.1)$name,V(module.fasting1.1n)$name)
+
+setdiff(V(module.fasting1.1n)$name,V(module.fasting1.1)$name)
+
+
+V(module.fasting1.1)$name
+
+plotModule(module.fasting1.1)
+
+
+
+edge.score.fasting.pos<-E(network.fasting1)$score[E(network.fasting1)$score>0]
+names(edge.score.fasting.pos)<-names(edge.score.fasting)[E(network.fasting1)$score>0]
+
+
+network.fasting1.n<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=edge.score.fasting.pos,node.weight=NA,edge.weight=NA)
+
+
+module.fasting1.1n<-runFastHeinz(network.fasting1.n, node.scores.fasting31)
+plotModule(module.fasting1.1n)
+
+setdiff(V(module.fasting1.1)$name,V(module.fasting1.1n)$name)
+
+setdiff(V(module.fasting1.1n)$name,V(module.fasting1.1)$name)
+
+
+
+setdiff(V(module.fasting1.1)$name,names(node.scores.fasting31)[node.scores.fasting31>0]
+)
+
+setdiff(V(module.fasting1.1n)$name,names(node.scores.fasting31)[node.scores.fasting31>0]
+)
+
+node.scores.fasting31["CAS.63.42.3.nt.01"]
+
+edge.score.fasting["gly.aa.01_CAS.63.42.3.nt.01"]
+node.scores.fasting31["gly.aa.01"]
+names(edge.score.fasting)
+
+setdiff(names(node.scores.fasting31)[node.scores.fasting31>0],V(module.fasting1.1n)$name)
+
+setdiff(names(node.scores.fasting31)[node.scores.fasting31>0],V(module.fasting1.1)$name)
+
+
+
+network.fasting2.n<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting32,edge.score=edge.score.fasting.pos,node.weight=NA,edge.weight=NA)
+
+module.fasting2.1n<-runFastHeinz(network.fasting2.n, node.scores.fasting32)
+plotModule(module.fasting2.1n)
+
+module.fasting2.1<-runFastHeinz.e(network.fasting2, node.scores.fasting32,edge.score.fasting)
+
+setdiff(V(module.fasting2.1n)$name,V(module.fasting1.1n)$name)
+
+setdiff(V(module.fasting2.1)$name,V(module.fasting2.1n)$name)
+
+
+setdiff(V(module.fasting2.1)$name,V(module.fasting1.1)$name)
+
+network.1hour11
+
+names(edge.score.fasting)
+
+
+##########################################################
+###correlation threshold to decide edges of network
+##########################################################
+#with cutoff 0.6,0.7,0.8
+##########################################################
+cutoff.thre<-0.4
+data.corr<-metobolites.final.fasting1
+colnames(metobolites.final.fasting1)
+
+corr.thre<-function(data.corr,cutoff.thre){
+
+
+#cor.metobolites.fasting<-cor(metobolites.final.fasting1)
+cor.metobolites.fasting1<-sapply(1:(ncol(data.corr)-1),
+       function(i){sapply((i+1):ncol(data.corr),function(j){cor(data.corr[,i],data.corr[,j])})})
+
+cor.metobolites.fasting.1<-unlist(cor.metobolites.fasting1)
+
+names.cor.met.fasting1<-sapply(1:(ncol(data.corr)-1),
+                                 function(i){sapply((i+1):ncol(data.corr),function(j){paste(colnames(data.corr)[i],colnames(data.corr)[j],sep="_")})})
+
+names(cor.metobolites.fasting.1)<-unlist(names.cor.met.fasting1)
+cor.metobolites.fasting.11<-cor.metobolites.fasting.1
+cor.metobolites.fasting.11[abs(cor.metobolites.fasting.1)<cutoff.thre]<-NA
+
+cor.metobolites.fasting.2<-cor.metobolites.fasting.11[!is.na(cor.metobolites.fasting.11)]
+
+cor.metobolites.fasting.2
+}
+
+
+cor.met.fasting.thre1<-corr.thre(metobolites.final.fasting1,0.25)
+
+cor.met.1hour.thre1<-corr.thre(metobolites.final.1hour1,0.25)
+
+
+cor.met.fasting.thre2<-corr.thre(metobolites.final.fasting1,0.5)
+
+cor.met.1hour.thre2<-corr.thre(metobolites.final.1hour1,0.5)
+length(cor.met.fasting.thre2)
+
+#cutoff 0.4
+cor.met.fasting.thre3<-corr.thre(metobolites.final.fasting1,0.4)
+
+cor.met.1hour.thre3<-corr.thre(metobolites.final.1hour1,0.4)
+length(cor.met.fasting.thre3)
+
+#cutoff 0.6
+cor.met.fasting.thre4<-corr.thre(metobolites.final.fasting1,0.6)
+
+cor.met.1hour.thre4<-corr.thre(metobolites.final.1hour1,0.6)
+length(cor.met.fasting.thre4)
+
+
+#cutoff 0.7
+cor.met.fasting.thre5<-corr.thre(metobolites.final.fasting1,0.7)
+
+cor.met.1hour.thre5<-corr.thre(metobolites.final.1hour1,0.7)
+length(cor.met.fasting.thre5)
+
+################################################################
+###construct weighted network based on node score and
+###thresholded correlation
+###########################################################
+
+network.1hour.cut.corr1<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=cor.met.1hour.thre1,node.weight=NA,edge.weight=NA)
+E(network.1hour.cut.corr1)$name<-names(cor.met.1hour.thre1)
+
+network.fasting.cut.corr1<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=cor.met.fasting.thre1,node.weight=NA,edge.weight=NA)
+
+E(network.fasting.cut.corr1)$name<-names(cor.met.fasting.thre1)
+
+lst.mod.fasting.n21<-MultiModuleFind(network.fasting.cut.corr1,node.scores.fasting31,cor.met.fasting.thre1,ncluster=4,method="NodeOnly")
+
+lst.mod.1hour.n21<-MultiModuleFind(network.1hour.cut.corr1,node.scores.fasting41,cor.met.1hour.thre1,ncluster=4,method="NodeOnly")
+
+mod.1hour.n21<-runFastHeinz(network.1hour.cut.corr1,node.scores.fasting41)
+
+network.1hour.cut.corr2<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=cor.met.1hour.thre2,node.weight=NA,edge.weight=NA)
+
+
+
+network.fasting.cut.corr2<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=cor.met.fasting.thre2,node.weight=NA,edge.weight=NA)
+
+E(network.fasting.cut.corr2)$name<-names(cor.met.fasting.thre2)
+
+E(network.1hour.cut.corr2)$name<-names(cor.met.1hour.thre2)
+
+lst.mod.fasting.n22<-MultiModuleFind(network.fasting.cut.corr2,node.scores.fasting31,cor.met.fasting.thre2,ncluster=4,method="NodeOnly")
+
+lst.mod.1hour.n22<-MultiModuleFind(network.1hour.cut.corr2,node.scores.fasting41,cor.met.1hour.thre2,ncluster=4,method="NodeOnly")
+
+network.fasting.cut.corr3<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=cor.met.fasting.thre3,node.weight=NA,edge.weight=NA)
+
+E(network.fasting.cut.corr3)$name<-names(cor.met.fasting.thre3)
+
+network.1hour.cut.corr3<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=cor.met.1hour.thre3,node.weight=NA,edge.weight=NA)
+
+E(network.1hour.cut.corr3)$name<-names(cor.met.1hour.thre3)
+
+
+lst.mod.fasting.n23<-MultiModuleFind(network.fasting.cut.corr3,node.scores.fasting31,cor.met.fasting.thre3,ncluster=4,method="NodeOnly")
+
+
+
+lst.mod.find.node<-function(thre.cutoff,type="fasting"){
+  if (type=="fasting"){
+
+    cor.met.fasting.thre<-corr.thre(metobolites.final.fasting1,thre.cutoff)
+    network.fasting.cut.corr<-induced.graph.data.frame(dat=metobolites.final.fasting1,node.score=node.scores.fasting31,edge.score=cor.met.fasting.thre,node.weight=NA,edge.weight=NA)
+    E(network.fasting.cut.corr)$name<-names(cor.met.fasting.thre)
+
+    lst.mod.fasting.n<-MultiModuleFind(network.fasting.cut.corr,node.scores.fasting31,cor.met.fasting.thre,ncluster=4,method="NodeOnly")
+    return(lst.mod.fasting.n)
+
+  }
+
+  if (type=="1hour"){
+
+    cor.met.1hour.thre<-corr.thre(metobolites.final.1hour1,thre.cutoff)
+    network.1hour.cut.corr<-induced.graph.data.frame(dat=metobolites.final.1hour1,node.score=node.scores.fasting41,edge.score=cor.met.1hour.thre,node.weight=NA,edge.weight=NA)
+    E(network.1hour.cut.corr)$name<-names(cor.met.1hour.thre)
+
+    lst.mod.1hour.n<-MultiModuleFind(network.1hour.cut.corr,node.scores.fasting41,cor.met.1hour.thre,ncluster=4,method="NodeOnly")
+    return(lst.mod.1hour.n)
+
+  }
+
+}
+
+#correlation threshold 0.4
+lst.mod.fasting.n23<-lst.mod.find.node(0.4,type="fasting")
+lst.mod.1hour.n23<-lst.mod.find.node(0.4,type="1hour")
+
+#correlation threshold 0.6
+lst.mod.fasting.n24<-lst.mod.find.node(0.6,type="fasting")
+lst.mod.1hour.n24<-lst.mod.find.node(0.6,type="1hour")
+
+#correlation threshold 0.7
+lst.mod.fasting.n25<-lst.mod.find.node(0.7,type="fasting")
+lst.mod.1hour.n25<-lst.mod.find.node(0.7,type="1hour")
+
+###############################################################
+###identify the metabolites in 4 clusters in first two modules
+###############################################################
+
+mod1.cluster4.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==4]
+
+sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n23[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n23[[1]])$name]==i]})
+
+l11<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n25[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n25[[1]])$name]==i]})
+
+names(unlist(l11[lapply(l11,length)>0])) ## you can use sapply,rapply
+
+names(l11[[1]])
+
+l12<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n25[[2]])$name][cluster.met.fasting[V(lst.mod.fasting.n25[[2]])$name]==i]})
+
+l12[lapply(l12,length)>0] ## you can use sapply,rapply
+
+mod51.cluster1.fasting<-met.fasting.fullname.final[names(unlist(l11[lapply(l11,length)>0])) ## you can use sapply,rapply
+]
+
+
+intersect(mod31.cluster1.fasting,mod41.cluster1.fasting)
+
+setdiff(mod31.cluster1.fasting,mod41.cluster1.fasting)
+
+mod52.cluster1.fasting<-met.fasting.fullname.final[names(unlist(l12[lapply(l12,length)>0])) ## you can use sapply,rapply
+                           ]
+
+mod52.cluster1.fasting[1]<-"CAS.150.83.4.nt.01"
+
+node.scores.fasting31[names(unlist(l12[lapply(l12,length)>0] ## you can use sapply,rapply
+))]
+
+####################################
+##cutoff threshold 0.6#############
+####################################
+l41<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n24[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n24[[1]])$name]==i]})
+
+names(unlist(l41[lapply(l41,length)>0])) ## you can use sapply,rapply
+
+names(l41[[1]])
+
+l42<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n24[[2]])$name][cluster.met.fasting[V(lst.mod.fasting.n24[[2]])$name]==i]})
+
+l42[lapply(l42,length)>0] ## you can use sapply,rapply
+
+mod41.cluster1.fasting<-met.fasting.fullname.final[names(unlist(l41[lapply(l41,length)>0])) ## you can use sapply,rapply
+                                                   ]
+mod41.cluster1.fasting[1]<-"CAS.150.83.4.nt.01"
+
+node.scores.fasting31[names(unlist(l41[lapply(l41,length)>0] ## you can use sapply,rapply
+))]
+
+
+mod42.cluster2.fasting<-met.fasting.fullname.final[names(unlist(l42[lapply(l42,length)>0]))] ## you can use sapply,rapply
+
+
+node.scores.fasting31[names(unlist(l42[lapply(l42,length)>0] ## you can use sapply,rapply
+))]
+
+###########################################################
+##cutoff threshold 0.4#############
+###########################################################
+l31<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n23[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n23[[1]])$name]==i]})
+
+names(unlist(l31[lapply(l31,length)>0])) ## you can use sapply,rapply
+
+names(l31[[1]])
+l31[lapply(l31,length)>0]
+
+l32<-sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n23[[2]])$name][cluster.met.fasting[V(lst.mod.fasting.n23[[2]])$name]==i]})
+
+l32[lapply(l42,length)>0] ## you can use sapply,rapply
+
+mod31.cluster1.fasting<-met.fasting.fullname.final[names(unlist(l31[lapply(l31,length)>0][[1]])) ## you can use sapply,rapply
+                                                   ]
+mod31.cluster1.fasting[1]<-"CAS.150.83.4.nt.01"
+
+format(node.scores.fasting31[names(unlist(l31[lapply(l31,length)>0][[1]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+mod31.cluster4.fasting<-met.fasting.fullname.final[names(unlist(l31[lapply(l31,length)>0][[2]])) ]## you can use sapply,rapply
+
+format(node.scores.fasting31[names(unlist(l31[lapply(l31,length)>0][[2]]))]
+                                                   , digits=2, nsmall=2)
+
+mod32.cluster2.fasting<-met.fasting.fullname.final[names(unlist(l32[lapply(l32,length)>0][[1]]))] ## you can use sapply,rapply
+
+format(node.scores.fasting31[names(unlist(l32[lapply(l32,length)>0][[1]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+format(unname(node.scores.fasting31[names(mod22.cluster1.fasting)]), digits=2, nsmall=2)
+
+
+mod32.cluster3.fasting<-met.fasting.fullname.final[names(unlist(l32[lapply(l32,length)>0][[2]]))] ## you can use sapply,rapply
+
+node.scores.fasting31[names(unlist(l32[lapply(l32,length)>0][[2]] ## you can use sapply,rapply
+))]
+
+intersect(mod42.cluster2.fasting,mod32.cluster2.fasting)
+
+setdiff(mod32.cluster2.fasting,mod42.cluster2.fasting)
+
+setdiff(mod42.cluster2.fasting,mod32.cluster2.fasting)
+
+setdiff(mod41.cluster1.fasting,mod31.cluster1.fasting)
+###########################################################
+##under 1 hour condition############
+##identify the metabolites under threshold cutoff 0.7
+########################################################
+l111<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n25[[1]])$name][cluster.met.1hour[V(lst.mod.1hour.n25[[1]])$name]==i]})
+
+names(unlist(l111[lapply(l111,length)>0])) ## you can use sapply,rapply
+
+names(l11[[1]])
+
+l121<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n25[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n25[[2]])$name]==i]})
+
+l121[lapply(l121,length)>0] ## you can use sapply,rapply
+
+mod51.cluster1.1hour<-met.1hr.fullname.final[names(unlist(l111[lapply(l111,length)>0]))] ## you can use sapply,rapply
+
+node.scores.fasting41[names(unlist(l111[lapply(l111,length)>0] ## you can use sapply,rapply
+))]
+
+intersect(intersect(mod32.cluster1.1hour,mod41.cluster1.1hour),mod51.cluster1.1hour)
+
+
+intersect(intersect(mod32.cluster2.1hour,mod41.cluster2.1hour),mod51.cluster2.1hour)
+
+setdiff(mod41.cluster1.1hour,mod51.cluster1.1hour)
+intersect(mod41.cluster1.1hour,mod32.cluster1.1hour)
+
+setdiff(mod32.cluster1.1hour,mod41.cluster1.1hour)
+
+
+mod52.cluster1.1hour<-met.1hr.fullname.final[names(unlist(l121[lapply(l121,length)>0]))] ## you can use sapply,rapply
+
+mod52.cluster1.1hour[1]<-"CAS.150.83.4.nt.01"
+
+
+node.scores.fasting41[names(unlist(l121[lapply(l121,length)>0] ## you can use sapply,rapply
+))]
+
+####################################
+##cutoff threshold 0.6#############
+####################################
+l411<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n24[[1]])$name][cluster.met.1hour[V(lst.mod.1hour.n24[[1]])$name]==i]})
+
+names(unlist(l411[lapply(l411,length)>0])) ## you can use sapply,rapply
+
+names(l41[[1]])
+
+l421<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n24[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n24[[2]])$name]==i]})
+
+l421[lapply(l421,length)>0] ## you can use sapply,rapply
+
+mod41.cluster1.1hour<-met.1hr.fullname.final[names(unlist(l411[lapply(l411,length)>0][[1]]))] ## you can use sapply,rapply
+
+mod41.cluster2.1hour<-met.1hr.fullname.final[names(unlist(l411[lapply(l411,length)>0][[2]]))] ## you can use sapply,rapply
+
+
+node.scores.fasting41[names(unlist(l411[lapply(l411,length)>0][[1]] ## you can use sapply,rapply
+))]
+
+node.scores.fasting41[names(unlist(l411[lapply(l411,length)>0][[2]] ## you can use sapply,rapply
+))]
+
+
+mod42.cluster2.1hour<-met.1hr.fullname.final[names(unlist(l421[lapply(l421,length)>0][[1]]))] ## you can use sapply,rapply
+
+mod42.cluster4.1hour<-met.1hr.fullname.final[names(unlist(l421[lapply(l421,length)>0][[2]]))] ## you can use sapply,rapply
+
+
+node.scores.fasting41[names(unlist(l421[lapply(l421,length)>0][[1]] ## you can use sapply,rapply
+))]
+
+node.scores.fasting41[names(unlist(l421[lapply(l421,length)>0][[2]] ## you can use sapply,rapply
+))]
+###########################################################
+##cutoff threshold 0.4#############
+###########################################################
+l311<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n23[[3]])$name][cluster.met.1hour[V(lst.mod.1hour.n23[[3]])$name]==i]})
+
+names(unlist(l311[lapply(l311,length)>0])) ## you can use sapply,rapply
+
+names(l311[[1]])
+l311[lapply(l311,length)>0]
+
+l321<-sapply(1:4,function(i){cluster.met.1hour[V(lst.mod.1hour.n23[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n23[[2]])$name]==i]})
+
+l321[lapply(l421,length)>0] ## you can use sapply,rapply
+
+mod31.cluster2.1hour<-met.1hr.fullname.final[names(unlist(l311[lapply(l311,length)>0])) ## you can use sapply,rapply
+                                                   ]
+
+format(node.scores.fasting41[names(unlist(l311[lapply(l311,length)>0] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+56/6.3
+
+mod32.cluster1.1hour<-met.1hr.fullname.final[names(unlist(l321[lapply(l321,length)>0][[1]]))] ## you can use sapply,rapply
+mod32.cluster1.1hour[1]<-"CAS.150.83.4.nt.12"
+
+mod32.cluster2.1hour<-met.1hr.fullname.final[names(unlist(l321[lapply(l321,length)>0][[2]]))] ## you can use sapply,rapply
+
+mod32.cluster3.1hour<-met.1hr.fullname.final[names(unlist(l321[lapply(l321,length)>0][[3]]))] ## you can use sapply,rapply
+
+mod32.cluster4.1hour<-met.1hr.fullname.final[names(unlist(l321[lapply(l321,length)>0][[4]]))] ## you can use sapply,rapply
+
+mod41.cluster2.1hour
+
+
+format(node.scores.fasting41[names(unlist(l321[lapply(l321,length)>0][[1]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+
+format(node.scores.fasting41[names(unlist(l321[lapply(l321,length)>0][[2]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+format(node.scores.fasting41[names(unlist(l321[lapply(l321,length)>0][[3]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+format(node.scores.fasting41[names(unlist(l321[lapply(l321,length)>0][[4]] ## you can use sapply,rapply
+))], digits=2, nsmall=2)
+
+
+
+
+format(unname(node.scores.fasting31[names(mod22.cluster1.fasting)]), digits=2, nsmall=2)
+
+
+mod32.cluster3.fasting<-met.fasting.fullname.final[names(unlist(l32[lapply(l32,length)>0][[2]]))] ## you can use sapply,rapply
+
+node.scores.fasting31[names(unlist(l32[lapply(l32,length)>0][[2]] ## you can use sapply,rapply
+))]
+mod51.cluster1.1hour
+intersect(intersect(mod41.cluster1.1hour,mod32.cluster1.1hour),mod51.cluster1.1hour)
+
+setdiff(mod32.cluster2.fasting,mod42.cluster2.fasting)
+
+setdiff(mod42.cluster2.fasting,mod32.cluster2.fasting)
+
+setdiff(mod41.cluster1.fasting,mod31.cluster1.fasting)
+########
+
+
+
+
+
+
+
+
+
+sapply(1:2,function(j){sapply(1:4,function(i){cluster.met.fasting[V(lst.mod.fasting.n21[[j]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[j]])$name]==i]})})
+
+
+
+cluster.met.fasting[V(lst.mod.fasting.n25[[1]])$name]
+
+cluster.met.fasting[V(lst.mod.fasting.n23[[1]])$name]
+
+mod1.cluster1.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==1]
+V(lst.mod.fasting.n21[[1]])$name[order(cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]
+)]
+
+mod1.cluster2.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==2]
+
+met.fasting.fullname.final[names(mod1.cluster1.fasting)]
+node.scores.fasting31[names(mod1.cluster1.fasting)]
+
+
+met.fasting.fullname.final[names(mod1.cluster2.fasting)]
+node.scores.fasting31[names(mod1.cluster2.fasting)]
+
+mod1.cluster3.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==3]
+
+met.fasting.fullname.final[names(mod1.cluster3.fasting)]
+node.scores.fasting31[names(mod1.cluster3.fasting)]
+
+
+mod1.cluster4.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==4]
+
+met.fasting.fullname.final[names(mod1.cluster4.fasting)]
+node.scores.fasting31[names(mod1.cluster4.fasting)]
+
+mod22.cluster1.fasting<-cluster.met.fasting[V(lst.mod.fasting.n22[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n22[[1]])$name]==1]
+met.fasting.fullname.final[names(mod22.cluster1.fasting)]
+node.scores.fasting31[names(mod22.cluster1.fasting)]
+cluster.met.fasting[V(lst.mod.fasting.n22[[1]])$name]
+
+cluster.met.fasting[V(lst.mod.fasting.n22[[2]])$name]
+
+mod222.cluster2.fasting<-cluster.met.fasting[V(lst.mod.fasting.n22[[2]])$name][cluster.met.fasting[V(lst.mod.fasting.n22[[2]])$name]==2]
+met.fasting.fullname.final[names(mod222.cluster2.fasting)]
+node.scores.fasting31[names(mod222.cluster2.fasting)]
+
+mod222.cluster3.fasting<-cluster.met.fasting[V(lst.mod.fasting.n22[[2]])$name][cluster.met.fasting[V(lst.mod.fasting.n22[[2]])$name]==3]
+met.fasting.fullname.final[names(mod222.cluster3.fasting)]
+node.scores.fasting31[names(mod222.cluster3.fasting)]
+
+
+
+
+
+mod21.cluster3.fasting<-cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name][cluster.met.fasting[V(lst.mod.fasting.n21[[1]])$name]==3]
+met.fasting.fullname.final[names(mod21.cluster3.fasting)]
+node.scores.fasting31[names(mod21.cluster3.fasting)]
+
+mod.n.cluster1.fasting<-cluster.met.fasting[V(module.fasting1.1)$name][cluster.met.fasting[V(module.fasting1.1)$name]==1]
+met.fasting.fullname.final[names(mod.n.cluster1.fasting)]
+node.scores.fasting31[names(mod.n.cluster1.fasting)]
+
+mod.n.cluster2.fasting<-cluster.met.fasting[V(module.fasting1.1)$name][cluster.met.fasting[V(module.fasting1.1)$name]==2]
+met.fasting.fullname.final[names(mod.n.cluster2.fasting)]
+node.scores.fasting31[names(mod.n.cluster2.fasting)]
+
+mod.n.cluster3.fasting<-cluster.met.fasting[V(module.fasting1.1)$name][cluster.met.fasting[V(module.fasting1.1)$name]==3]
+met.fasting.fullname.final[names(mod.n.cluster3.fasting)]
+node.scores.fasting31[names(mod.n.cluster3.fasting)]
+
+mod.n.cluster4.fasting<-cluster.met.fasting[V(module.fasting1.1)$name][cluster.met.fasting[V(module.fasting1.1)$name]==4]
+met.fasting.fullname.final[names(mod.n.cluster4.fasting)]
+node.scores.fasting31[names(mod.n.cluster4.fasting)]
+
+mod.detect<-rbind("First","Second")
+names(mod.detect)<-"Modules Detected"
+mod.nodeedge.fasting<-list(c(met.fasting.fullname.final[names(mod.n.cluster1.fasting)]
+,met.fasting.fullname.final[names(mod.n.cluster2.fasting)],
+met.fasting.fullname.final[names(mod.n.cluster3.fasting)],
+met.fasting.fullname.final[names(mod.n.cluster4.fasting)])," ")
+
+mod.nodeedge.fasting[[1]][1]<-"CAS.150.83.4.nt.01"
+
+met.fasting.fullname.final[setdiff(names(mod1.cluster1.fasting),names(mod.n.cluster1.fasting))]
+
+unname(met.fasting.fullname.final[names(mod.n.cluster2.fasting)])
+
+met.fasting.fullname.final[intersect(names(mod.n.cluster2.fasting), names(mod1.cluster2.fasting))]
+
+met.fasting.fullname.final[setdiff(names(mod.n.cluster2.fasting), names(mod1.cluster2.fasting))]
+node.scores.fasting31["gly.aa.01"]
+
+met.fasting.fullname.final[setdiff(names(mod1.cluster2.fasting), names(mod.n.cluster2.fasting))]
+
+node.scores.fasting31["CAS.72.19.5.nt.01"]
+
+
+format(unname(node.scores.fasting31[intersect(names(mod.n.cluster2.fasting), names(mod1.cluster2.fasting))]), digits=1, nsmall=2)
+
+format(unname(node.scores.fasting31[names(mod1.cluster1.fasting)]), digits=2, nsmall=2)
+
+
+met.fasting.fullname.final[intersect(names(mod1.cluster3.fasting), names(mod.n.cluster3.fasting))]
+
+format(unname(node.scores.fasting31[intersect(names(mod.n.cluster3.fasting), names(mod1.cluster3.fasting))]), digits=1, nsmall=2)
+
+met.fasting.fullname.final[setdiff(names(mod1.cluster3.fasting), names(mod.n.cluster3.fasting))]
+
+met.fasting.fullname.final[setdiff(names(mod.n.cluster3.fasting), names(mod1.cluster3.fasting))]
+
+unname(node.scores.fasting31[setdiff(names(mod.n.cluster3.fasting), names(mod1.cluster3.fasting))])
+
+
+unname(met.fasting.fullname.final[intersect(names(mod1.cluster4.fasting), names(mod.n.cluster4.fasting))])
+
+format(unname(node.scores.fasting31[intersect(names(mod.n.cluster4.fasting), names(mod1.cluster4.fasting))]), digits=1, nsmall=2)
+
+met.fasting.fullname.final[setdiff(names(mod.n.cluster4.fasting), names(mod1.cluster4.fasting))]
+
+node.scores.fasting31["CAS.112.80.1.nt.01"]
+met.fasting.fullname.final[setdiff(names(mod.n.cluster3.fasting), names(mod1.cluster3.fasting))]
+
+unname(node.scores.fasting31[setdiff(names(mod.n.cluster3.fasting), names(mod1.cluster3.fasting))])
+
+
+
+nodescore.nodeedge.fasting<-list(c(node.scores.fasting31[names(mod.n.cluster1.fasting)]
+                             ,node.scores.fasting31[names(mod.n.cluster2.fasting)],
+                             node.scores.fasting31[names(mod.n.cluster3.fasting)],
+                             node.scores.fasting31[names(mod.n.cluster4.fasting)]),NA)
+
+mod.node.25.fasting<-list(c(met.fasting.fullname.final[names(mod1.cluster1.fasting)]
+                             ,met.fasting.fullname.final[names(mod1.cluster2.fasting)],
+                             met.fasting.fullname.final[names(mod1.cluster3.fasting)],
+                             met.fasting.fullname.final[names(mod1.cluster4.fasting)])," ")
+
+nodescore.node.25.fasting<-list(c(node.scores.fasting31[names(mod1.cluster1.fasting)]
+                                   ,node.scores.fasting31[names(mod1.cluster2.fasting)],
+                                   node.scores.fasting31[names(mod1.cluster3.fasting)],
+                                   node.scores.fasting31[names(mod1.cluster4.fasting)]),NA)
+
+mod.node.25.fasting[[1]]
+
+format(unname(node.scores.fasting31[names(mod1.cluster1.fasting)]), digits=2, nsmall=2)
+mod.node.25.fasting[[1]][1]<-"CAS.150.83.4.nt.01"
+
+mod.node.5.fasting<-list(met.fasting.fullname.final[names(mod22.cluster1.fasting)],
+                            c(met.fasting.fullname.final[names(mod222.cluster2.fasting)],
+                            met.fasting.fullname.final[names(mod222.cluster3.fasting)])
+                           )
+unname(mod.node.5.fasting[[1]])
+
+unname(mod.node.25.fasting[[1]])
+
+met.fasting.fullname.final[setdiff(names(mod1.cluster1.fasting),names(mod22.cluster1.fasting))]
+
+node.scores.fasting31[names(met.fasting.fullname.final[setdiff(names(mod22.cluster1.fasting),names(mod1.cluster1.fasting))])]
+
+
+mod.node.5.fasting[[1]][1]<-"CAS.150.83.4.nt.01"
+
+
+nodescore.node.5.fasting<-list(node.scores.fasting31[names(mod22.cluster1.fasting)],
+                         c(node.scores.fasting31[names(mod222.cluster2.fasting)],
+                           node.scores.fasting31[names(mod222.cluster3.fasting)])
+)
+
+format(unname(node.scores.fasting31[names(mod22.cluster1.fasting)]), digits=2, nsmall=2)
+
+
+node.scores.fasting31[names(mod22.cluster1.fasting)]
+
+xtable(mod.nodeedge.fasting,mod.node.25.fasting,mod.node.5.fasting)
+
+cluster.met.fasting[V(lst.mod.fasting.n21[[2]])$name]
+
+met.fasting.name.nodescore[V(lst.mod.fasting.n21[[2]])$name]
+node.scores.fasting31[V(lst.mod.fasting.n21[[2]])$name]
+node.scores.fasting31[V(lst.mod.fasting.n21[[1]])$name]
+
+met.fasting.fullname.final[V(lst.mod.fasting.n21[[2]])$name]
+
+met.fasting.fullname.final[V(lst.mod.fasting.n21[[1]])$name]
+
+#############################################################
+
+mod.1hour.n21
+###############################################################
+mod1.cluster1.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==1]
+V(mod.1hour.n21)$name[order(cluster.met.1hour[V(mod.1hour.n21)$name]
+)]
+
+mod1.cluster2.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==2]
+
+met.1hr.fullname.final[names(mod1.cluster1.1hour)]
+node.scores.fasting41[names(mod1.cluster1.1hour)]
+
+
+met.1hr.fullname.final[names(mod1.cluster2.1hour)]
+node.scores.fasting41[names(mod1.cluster2.1hour)]
+
+mod1.cluster3.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==3]
+
+met.1hr.fullname.final[names(mod1.cluster3.1hour)]
+node.scores.fasting41[names(mod1.cluster3.1hour)]
+
+
+mod1.cluster4.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==4]
+
+met.1hr.fullname.final[names(mod1.cluster4.1hour)]
+node.scores.fasting41[names(mod1.cluster4.1hour)]
+
+mod22.cluster1.1hour<-cluster.met.1hour[V(lst.mod.1hour.n22[[1]])$name][cluster.met.1hour[V(lst.mod.1hour.n22[[1]])$name]==1]
+met.1hr.fullname.final[names(mod22.cluster1.1hour)]
+node.scores.fasting41[names(mod22.cluster1.1hour)]
+
+mod22.cluster2.1hour<-cluster.met.1hour[V(lst.mod.1hour.n22[[1]])$name][cluster.met.1hour[V(lst.mod.1hour.n22[[1]])$name]==2]
+met.1hr.fullname.final[names(mod22.cluster2.1hour)]
+node.scores.fasting41[names(mod22.cluster2.1hour)]
+
+
+
+cluster.met.1hour[V(lst.mod.1hour.n22[[1]])$name]
+
+cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name]
+
+mod222.cluster1.1hour<-cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name]==1]
+met.1hr.fullname.final[names(mod222.cluster1.1hour)]
+node.scores.fasting41[names(mod222.cluster1.1hour)]
+
+
+mod222.cluster2.1hour<-cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name]==2]
+met.1hr.fullname.final[names(mod222.cluster2.1hour)]
+node.scores.fasting41[names(mod222.cluster2.1hour)]
+
+mod222.cluster4.1hour<-cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name][cluster.met.1hour[V(lst.mod.1hour.n22[[2]])$name]==4]
+met.1hr.fullname.final[names(mod222.cluster4.1hour)]
+node.scores.fasting41[names(mod222.cluster4.1hour)]
+
+
+
+
+
+mod.n.cluster1.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==1]
+met.1hr.fullname.final[names(mod.n.cluster1.1hour)]
+node.scores.fasting41[names(mod.n.cluster1.1hour)]
+
+mod.n.cluster2.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==2]
+met.1hr.fullname.final[names(mod.n.cluster2.1hour)]
+node.scores.fasting41[names(mod.n.cluster2.1hour)]
+
+mod.n.cluster3.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==3]
+met.1hr.fullname.final[names(mod.n.cluster3.1hour)]
+node.scores.fasting41[names(mod.n.cluster3.1hour)]
+
+mod.n.cluster4.1hour<-cluster.met.1hour[V(mod.1hour.n21)$name][cluster.met.1hour[V(mod.1hour.n21)$name]==4]
+met.1hr.fullname.final[names(mod.n.cluster4.1hour)]
+node.scores.fasting41[names(mod.n.cluster4.1hour)]
+
+mod.detect<-rbind("First","Second")
+names(mod.detect)<-"Modules Detected"
+mod.nodeedge.1hour<-list(c(met.1hr.fullname.final[names(mod.n.cluster1.1hour)]
+                             ,met.1hr.fullname.final[names(mod.n.cluster2.1hour)],
+                           met.1hr.fullname.final[names(mod.n.cluster3.1hour)],
+                           met.1hr.fullname.final[names(mod.n.cluster4.1hour)])," ")
+
+
+
+mod.nodeedge.1hour[[1]][8]<-"CAS.150.83.4.nt.12"
+
+met.1hr.fullname.final[intersect(names(mod1.cluster1.1hour),names(mod.n.cluster1.1hour))]
+
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster1.1hour),names(mod.n.cluster1.1hour))]
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster1.1hour),names(mod1.cluster1.1hour))]
+
+
+unname(met.1hr.fullname.final[names(mod.n.cluster2.1hour)])
+
+met.1hr.fullname.final[intersect(names(mod.n.cluster2.1hour), names(mod1.cluster2.1hour))]
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster2.1hour), names(mod1.cluster2.1hour))]
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster2.1hour), names(mod.n.cluster2.1hour))]
+
+
+
+format(unname(node.scores.fasting41[intersect(names(mod.n.cluster2.1hour), names(mod1.cluster2.1hour))]), digits=1, nsmall=2)
+
+format(unname(node.scores.fasting41[names(mod1.cluster1.1hour)]), digits=2, nsmall=2)
+
+
+met.1hr.fullname.final[intersect(names(mod1.cluster3.1hour), names(mod.n.cluster3.1hour))]
+
+format(unname(node.scores.fasting41[intersect(names(mod.n.cluster3.1hour), names(mod1.cluster3.1hour))]), digits=1, nsmall=2)
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster3.1hour), names(mod.n.cluster3.1hour))]
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster3.1hour), names(mod1.cluster3.1hour))]
+
+unname(node.scores.fasting41[setdiff(names(mod.n.cluster3.1hour), names(mod1.cluster3.1hour))])
+
+
+unname(met.1hr.fullname.final[intersect(names(mod1.cluster4.1hour), names(mod.n.cluster4.1hour))])
+
+format(unname(node.scores.fasting41[intersect(names(mod.n.cluster4.1hour), names(mod1.cluster4.1hour))]), digits=1, nsmall=2)
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster4.1hour), names(mod1.cluster4.1hour))]
+
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster3.1hour), names(mod1.cluster3.1hour))]
+
+unname(node.scores.fasting41[setdiff(names(mod.n.cluster3.1hour), names(mod1.cluster3.1hour))])
+
+
+
+nodescore.nodeedge.1hour<-list(c(node.scores.fasting41[names(mod.n.cluster1.1hour)]
+                                   ,node.scores.fasting41[names(mod.n.cluster2.1hour)],
+                                   node.scores.fasting41[names(mod.n.cluster3.1hour)],
+                                   node.scores.fasting41[names(mod.n.cluster4.1hour)]),NA)
+
+mod.node.25.1hour<-list(c(met.1hr.fullname.final[names(mod1.cluster1.1hour)]
+                            ,met.1hr.fullname.final[names(mod1.cluster2.1hour)],
+                          met.1hr.fullname.final[names(mod1.cluster3.1hour)],
+                          met.1hr.fullname.final[names(mod1.cluster4.1hour)])," ")
+
+nodescore.node.25.1hour<-list(c(node.scores.fasting41[names(mod1.cluster1.1hour)]
+                                  ,node.scores.fasting41[names(mod1.cluster2.1hour)],
+                                  node.scores.fasting41[names(mod1.cluster3.1hour)],
+                                  node.scores.fasting41[names(mod1.cluster4.1hour)]),NA)
+
+mod.node.25.1hour[[1]]
+
+format(unname(node.scores.fasting41[names(mod1.cluster1.1hour)]), digits=2, nsmall=2)
+mod.node.25.1hour[[1]][8]<-"CAS.150.83.4.nt.12"
+
+mod22.cluster2.1hour
+mod.node.5.1hour<-list(c(met.1hr.fullname.final[names(mod22.cluster1.1hour)],
+                         met.1hr.fullname.final[names(mod22.cluster2.1hour)]),
+                         c(met.1hr.fullname.final[names(mod222.cluster1.1hour)],
+                           met.1hr.fullname.final[names(mod222.cluster2.1hour)],
+                           met.1hr.fullname.final[names(mod222.cluster4.1hour)])
+)
+unname(mod.node.5.1hour[[1]])
+
+unname(mod.node.25.1hour[[1]])
+
+met.1hr.fullname.final[names(mod222.cluster1.1hour)]
+node.scores.fasting41[names(mod222.cluster1.1hour)]
+
+met.1hr.fullname.final[names(mod222.cluster2.1hour)]
+format(unname(node.scores.fasting41[names(mod222.cluster2.1hour)]),digits=1, nsmall=2)
+
+met.1hr.fullname.final[names(mod222.cluster4.1hour)]
+format(unname(node.scores.fasting41[names(mod222.cluster4.1hour)]),digits=1, nsmall=2)
+
+
+
+met.1hr.fullname.final[names(mod222.cluster2.1hour)]
+
+met.1hr.fullname.final[names(mod222.cluster4.1hour)]
+
+
+
+
+met.1hr.fullname.final[intersect(names(mod.n.cluster1.1hour),names(mod1.cluster1.1hour))]
+
+node.scores.fasting41[intersect(names(mod.n.cluster1.1hour),names(mod1.cluster1.1hour))]
+
+met.1hr.fullname.final[intersect(names(mod.n.cluster1.1hour),names(mod22.cluster1.1hour))]
+
+met.1hr.fullname.final[names(mod.n.cluster1.1hour)]
+
+met.1hr.fullname.final[names(mod1.cluster1.1hour)]
+node.scores.fasting41[names(mod1.cluster1.1hour)]
+
+met.1hr.fullname.final[names(mod22.cluster1.1hour)]
+
+met.1hr.fullname.final[intersect(names(mod.n.cluster2.1hour),names(mod22.cluster2.1hour))]
+
+met.1hr.fullname.final[intersect(intersect(names(mod.n.cluster2.1hour),names(mod1.cluster2.1hour)),names(mod22.cluster2.1hour))]
+node.scores.fasting41[intersect(intersect(names(mod.n.cluster2.1hour),names(mod1.cluster2.1hour)),names(mod22.cluster2.1hour))]
+
+unname(node.scores.fasting41[intersect(intersect(names(mod.n.cluster2.1hour),names(mod1.cluster2.1hour)),names(mod22.cluster2.1hour))]
+)
+comm.cluster2.1hr<-intersect(intersect(names(mod.n.cluster2.1hour),names(mod1.cluster2.1hour)),names(mod22.cluster2.1hour))
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster2.1hour),comm.cluster2.1hr)]
+
+unname(node.scores.fasting41[setdiff(names(mod1.cluster2.1hour),comm.cluster2.1hr)])
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster2.1hour),comm.cluster2.1hr)]
+
+format(unname(node.scores.fasting41[setdiff(names(mod.n.cluster2.1hour),comm.cluster2.1hr)]), digits=1, nsmall=2)
+format(unname(node.scores.fasting41[intersect(names(mod.n.cluster2.1hour), names(mod1.cluster2.1hour))]), digits=1, nsmall=2)
+
+met.1hr.fullname.final[setdiff(names(mod22.cluster2.1hour),comm.cluster2.1hr)]
+
+met.1hr.fullname.final[setdiff(names(mod.n.cluster2.1hour),mod1.cluster2.1hour)]
+
+
+node.scores.fasting41[setdiff(names(mod22.cluster2.1hour),comm.cluster2.1hr)]
+
+comm.cluster3.1hr<-intersect(names(mod.n.cluster3.1hour),names(mod1.cluster3.1hour))
+met.1hr.fullname.final[comm.cluster3.1hr]
+node.scores.fasting41[comm.cluster3.1hr]
+
+mod22.cluster4.1hour
+comm.cluster4.1hr<-intersect(names(mod.n.cluster4.1hour),names(mod1.cluster4.1hour))
+met.1hr.fullname.final[comm.cluster4.1hr]
+format(unname(node.scores.fasting41[comm.cluster4.1hr]), digits=1, nsmall=2)
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster3.1hour),comm.cluster3.1hr)]
+
+unname(node.scores.fasting41[setdiff(names(mod1.cluster2.1hour),comm.cluster2.1hr)])
+
+
+node.scores.fasting41[names(met.1hr.fullname.final[setdiff(names(mod22.cluster1.1hour),names(mod1.cluster1.1hour))])]
+
+
+met.1hr.fullname.final[intersect(names(mod1.cluster1.1hour),names(mod22.cluster1.1hour))]
+node.scores.fasting41[intersect(names(mod1.cluster1.1hour),names(mod22.cluster1.1hour))]
+
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster1.1hour),names(mod22.cluster1.1hour))]
+
+node.scores.fasting41[names(met.1hr.fullname.final[setdiff(names(mod22.cluster1.1hour),names(mod1.cluster1.1hour))])]
+
+met.1hr.fullname.final[setdiff(names(mod1.cluster1.1hour),names(mod22.cluster1.1hour))]
+
+node.scores.fasting41[names(met.1hr.fullname.final[setdiff(names(mod1.cluster1.1hour),names(mod22.cluster1.1hour))])]
+
+
+
+mod.node.5.fasting[[1]][1]<-"CAS.150.83.4.nt.01"
+
+
+nodescore.node.5.fasting<-list(node.scores.fasting31[names(mod22.cluster1.fasting)],
+                               c(node.scores.fasting31[names(mod222.cluster2.fasting)],
+                                 node.scores.fasting31[names(mod222.cluster3.fasting)])
+)
+
+
+format(unname(node.scores.fasting41[names(mod22.cluster1.fasting)]), digits=2, nsmall=2)
+
+
+node.scores.fasting31[names(mod22.cluster1.fasting)]
+#############################################################
+
