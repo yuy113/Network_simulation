@@ -1451,7 +1451,6 @@ for (i in 1:n.sim){
   
   
   
-  
 }
 result2.sim22<-list(lst.nodenum.n,lst.nodenum.e,lst.nodenum.c,lst.id.clusters)
 save(result2.sim22,file=paste(out_dir,"ERnew_clustersize",as.character(n.size),"_p",as.character(p*10),".Rdata",sep=""))
